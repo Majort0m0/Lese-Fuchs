@@ -1,0 +1,1598 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lese-Fuchs - Interaktives Lesetraining</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Andika&family=Open+Sans:wght@400;600;700&display=swap');
+
+        body { font-family: 'Open Sans', sans-serif; }
+        .reading-font { font-family: 'Andika', sans-serif; line-height: 1.8; letter-spacing: 0.02em; }
+        
+        .highlight-word {
+            background-color: #fde047; 
+            border-radius: 4px;
+            box-shadow: 0 0 0 2px #fde047;
+            color: #000;
+        }
+
+        /* Drag & Drop Styles */
+        .drop-zone {
+            transition: all 0.2s ease;
+        }
+        .drop-zone.drag-over {
+            background-color: #eff6ff;
+            border-color: #3b82f6;
+            transform: scale(1.02);
+        }
+        
+        /* Cloze Specific */
+        .cloze-drop-zone {
+            min-width: 80px;
+            min-height: 36px;
+            vertical-align: middle;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 4px;
+        }
+
+        .draggable-item, .draggable-word {
+            cursor: grab;
+            touch-action: none; 
+            user-select: none;
+        }
+        .draggable-item:active, .draggable-word:active { cursor: grabbing; }
+        .draggable-item.dragging, .draggable-word.dragging { opacity: 0.5; }
+
+        /* Richtige/Falsche Antworten */
+        .correct { background-color: #dcfce7 !important; border-color: #22c55e !important; color: #166534 !important; }
+        .wrong { background-color: #fee2e2 !important; border-color: #ef4444 !important; color: #991b1b !important; }
+
+        /* Modal Animation */
+        .modal-enter { opacity: 0; transform: scale(0.95); }
+        .modal-enter-active { opacity: 1; transform: scale(1); transition: all 0.3s ease-out; }
+        
+        /* Loading Spinner */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 3px solid #3b82f6;
+            width: 24px;
+            height: 24px;
+            -webkit-animation: spin 1s linear infinite; /* Safari */
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Custom Checkbox */
+        .custom-checkbox input:checked + div {
+            background-color: #2563eb;
+            border-color: #2563eb;
+        }
+        .custom-checkbox input:checked + div svg {
+            display: block;
+        }
+
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 flex flex-col min-h-screen overflow-hidden"> <!-- Prevent body scroll in Cloze Mode context -->
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-40 flex-shrink-0">
+        <div class="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <span class="text-2xl">🦊</span>
+                <h1 class="text-xl font-bold text-slate-700 tracking-tight">Lese-Fuchs</h1>
+            </div>
+            <div class="flex gap-2" id="headerTools">
+                <!-- Export Button -->
+                <button onclick="exportHTML()" class="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-semibold transition-colors" title="Als HTML exportieren">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    <span class="hidden sm:inline">Export</span>
+                </button>
+
+                <!-- KI-Prompt Button -->
+                <button onclick="openPromptModal()" class="inline-flex items-center gap-2 px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg text-sm font-semibold transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span class="hidden sm:inline">KI-Generator</span>
+                    <span class="sm:hidden">KI</span>
+                </button>
+
+                <!-- File Input -->
+                <input type="file" id="fileInput" accept=".json" class="hidden">
+                <label for="fileInput" class="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm font-semibold transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <span class="hidden sm:inline">Laden</span>
+                </label>
+
+                <!-- Paste JSON Button -->
+                <button onclick="openPasteModal()" class="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-sm font-semibold transition-colors" title="JSON Text einfügen">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <span class="hidden sm:inline">Einfügen</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Navigation -->
+    <nav class="bg-white border-b border-slate-200 flex-shrink-0" id="mainNav">
+        <div class="max-w-5xl mx-auto px-4">
+            <div class="flex space-x-1 overflow-x-auto" id="tabContainer">
+                <!-- Tabs via JS -->
+            </div>
+        </div>
+    </nav>
+
+    <!-- Content Area -->
+    <main class="flex-grow w-full mx-auto px-4 py-4 overflow-y-auto max-w-6xl" id="appContent">
+        <div class="text-center py-20 text-slate-500">
+            <p class="mb-4">Bitte laden Sie eine JSON-Datei hoch oder nutzen Sie die Demo.</p>
+            <button onclick="loadDemoData()" class="px-6 py-2 bg-emerald-500 text-white rounded-full font-semibold shadow hover:bg-emerald-600 transition">Demo starten</button>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 mt-auto py-4 flex-shrink-0">
+        <div class="max-w-5xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-slate-500">
+            <div class="text-center md:text-left">
+                <span class="font-semibold">Lese-Fuchs</span>
+                <span class="mx-2">•</span>
+                <span>CC BY-NC 4.0</span>
+                <span class="mx-2">•</span>
+                <a href="https://lernsachen.blog" target="_blank" class="text-blue-600 font-bold hover:underline">Lernsachen.blog</a>
+            </div>
+            <button onclick="openHelpModal()" class="underline hover:text-slate-800 transition-colors">Hilfe, Anleitung & Datenschutz</button>
+        </div>
+    </footer>
+
+    <!-- Help Modal -->
+    <div id="helpModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-3xl rounded-2xl shadow-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h2 class="text-2xl font-bold text-slate-800">Hilfe, Anleitung & Datenschutz</h2>
+                <button id="modalCloseBtn" onclick="closeHelpModal()" class="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-8 text-slate-600 leading-relaxed">
+                
+                <!-- 1. Programm & Funktionen -->
+                <section>
+                    <h3 class="text-lg font-bold text-blue-700 mb-3 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Über den Lese-Fuchs
+                    </h3>
+                    <p class="mb-3">Der <strong>Lese-Fuchs</strong> ist eine interaktive Webanwendung zur Leseförderung. Sie ermöglicht es, Texte didaktisch aufbereitet darzustellen und mit passenden Übungen zu verknüpfen.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                        <div class="bg-slate-50 p-3 rounded border"><strong>📖 Lesen & Hören:</strong> Textanzeige in lesefreundlicher Schrift ("Andika") mit integrierter Vorlesefunktion und Wort-Hervorhebung.</div>
+                        <div class="bg-slate-50 p-3 rounded border"><strong>❓ Quiz:</strong> Überprüfung des Leseverständnisses durch Multiple-Choice-Fragen.</div>
+                        <div class="bg-slate-50 p-3 rounded border"><strong>✏️ Lückentext:</strong> Interaktive Übung, bei der fehlende Wörter per Drag & Drop in den Text gezogen werden.</div>
+                        <div class="bg-slate-50 p-3 rounded border"><strong>🧩 Zuordnen:</strong> Spielerische Zuordnung von Wörtern zu passenden Bildern (Piktogrammen).</div>
+                    </div>
+                </section>
+
+                <!-- 2. KI & JSON Workflow -->
+                <section>
+                    <h3 class="text-lg font-bold text-purple-700 mb-3 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                        Eigene Inhalte erstellen (KI & JSON)
+                    </h3>
+                    <p class="mb-2">Lehrkräfte können unbegrenzt neue Übungen erstellen. Der Prozess basiert auf einfachen Textdateien im <strong>JSON-Format</strong>.</p>
+                    <ol class="list-decimal pl-5 space-y-2 text-sm marker:text-purple-600 marker:font-bold">
+                        <li>Klicken Sie oben auf <strong>"KI-Generator"</strong> und kopieren Sie den angezeigten Prompt.</li>
+                        <li>Fügen Sie diesen in eine KI (z.B. ChatGPT, Claude) ein und geben Sie Ihr Wunschthema an.</li>
+                        <li>Die KI generiert einen Code-Block. Speichern Sie diesen Text als Datei mit der Endung <code>.json</code> (z.B. <code>ritter.json</code>).</li>
+                        <li>Laden Sie diese Datei über <strong>"JSON laden"</strong> in den Lese-Fuchs. Bilder werden automatisch hinzugefügt.</li>
+                    </ol>
+                </section>
+
+                <!-- 3. Export -->
+                <section>
+                    <h3 class="text-lg font-bold text-emerald-700 mb-3 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        HTML Export & Weitergabe
+                    </h3>
+                    <p class="text-sm">
+                        Über den Button <strong>"Export"</strong> können Sie die aktuell geladene Übung als eigenständige HTML-Datei speichern. 
+                        Diese Datei enthält den gesamten Text und die Fragen. Sie kann ohne Internet (sofern Bilder im Cache sind) und ohne Login an Schüler weitergegeben werden. 
+                        In der Export-Version sind die Bearbeitungsfunktionen deaktiviert.
+                    </p>
+                </section>
+
+                <!-- 4. Datenschutz -->
+                <section class="border-t border-slate-200 pt-6">
+                    <h3 class="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        Datenschutzerklärung (Privacy by Design)
+                    </h3>
+                    <div class="text-sm space-y-4">
+                        <div class="bg-blue-50 border border-blue-100 p-3 rounded">
+                            <strong>Grundsatz:</strong> Diese Applikation verarbeitet Daten primär <strong>lokal im Browser</strong> (Client-Side). Es findet keine Speicherung von personenbezogenen Lerndaten auf einem Server des Anbieters statt.
+                        </div>
+
+                        <div>
+                            <strong class="block text-slate-700 mb-1">1. Lokale Speicherung (LocalStorage)</strong>
+                            <ul class="list-disc pl-5 text-slate-500">
+                                <li><code>lese-fuchs-terms-accepted</code>: Speichert lediglich den Status "true", wenn Sie diese Hinweise akzeptiert haben, um das Modal bei zukünftigen Besuchen nicht erneut anzuzeigen.</li>
+                            </ul>
+                        </div>
+
+                        <div>
+                            <strong class="block text-slate-700 mb-1">2. Eingebundene externe Dienste & Bibliotheken</strong>
+                            <p class="mb-1">Beim Laden der App werden technische Komponenten von externen Servern nachgeladen. Dabei wird technisch bedingt Ihre IP-Adresse an diese Dienste übertragen:</p>
+                            <ul class="list-disc pl-5 text-slate-500">
+                                <li><strong>Tailwind CSS (CDN):</strong> Gestaltung und Layout (via <code>cdn.tailwindcss.com</code>).</li>
+                                <li><strong>Google Fonts:</strong> Schriftarten "Andika" (lesefreundlich) und "Open Sans" (via <code>fonts.googleapis.com</code>).</li>
+                                <li><strong>ARASAAC API:</strong> Suche und Anzeige von Piktogrammen (via <code>api.arasaac.org</code> und <code>static.arasaac.org</code>). Die Suchbegriffe werden zur Bildfindung an ARASAAC übermittelt.</li>
+                            </ul>
+                        </div>
+
+                        <div>
+                            <strong class="block text-slate-700 mb-1">3. Browser-Funktionen</strong>
+                            <ul class="list-disc pl-5 text-slate-500">
+                                <li><strong>Sprachausgabe (Web Speech API):</strong> Die Vorlesefunktion nutzt die lokale Synthese Ihres Browsers/Betriebssystems. Der Text wird nicht an Cloud-Dienste zur Vertonung gesendet.</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="text-xs text-slate-400 mt-4">
+                            Lizenz der Piktogramme: ARASAAC (Sergio Palao), unter CC BY-NC-SA 3.0. App-Lizenz: CC BY-NC 4.0.
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="p-4 border-t border-slate-100 bg-slate-50">
+                <label class="flex items-center cursor-pointer">
+                    <input type="checkbox" id="termsToggle" onchange="acceptTerms()" class="sr-only peer">
+                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                    <span class="ml-3 text-sm font-medium text-slate-700">Ich habe die Informationen gelesen und akzeptiere sie.</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Search Modal -->
+    <div id="imageSearchModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-3xl rounded-xl shadow-2xl h-[80vh] flex flex-col">
+            <div class="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl">
+                <h3 class="text-lg font-bold text-slate-700">Bild suchen (ARASAAC)</h3>
+                <button onclick="closeSearchModal()" class="text-slate-400 hover:text-slate-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div class="p-4 bg-white border-b border-slate-100 flex gap-2">
+                <input type="text" id="searchInput" class="flex-grow border border-slate-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Suchbegriff eingeben..." onkeypress="handleSearchEnter(event)">
+                <button onclick="performSearch()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition flex items-center gap-2">
+                    Suche
+                </button>
+            </div>
+
+            <div id="searchResults" class="p-6 overflow-y-auto grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4 bg-slate-50 flex-grow">
+                <!-- Results go here -->
+                <div class="col-span-full text-center text-slate-400 mt-10">
+                    Geben Sie einen Begriff ein, um nach Piktogrammen zu suchen.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paste JSON Modal (New) -->
+    <div id="pasteModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h3 class="text-lg font-bold text-slate-700">JSON Daten einfügen</h3>
+                <button onclick="closePasteModal()" class="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-6 flex-grow flex flex-col gap-4">
+                <p class="text-sm text-slate-600">Fügen Sie hier den JSON-Code Ihrer Geschichte ein (z.B. aus dem KI-Generator).</p>
+                <textarea id="jsonPasteArea" class="w-full flex-grow h-64 p-3 border border-slate-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none" placeholder='{ "titel": "...", "text": "..." }'></textarea>
+                <div class="flex justify-end gap-2">
+                    <button onclick="closePasteModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition">Abbrechen</button>
+                    <button onclick="processPastedJSON()" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow transition">Laden</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prompt Modal -->
+    <div id="promptModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-purple-50">
+                <div class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <h2 class="text-2xl font-bold text-slate-800">Eigene Geschichten erstellen</h2>
+                </div>
+                <button onclick="closePromptModal()" class="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-4">
+                <p class="text-slate-600 leading-relaxed">
+                    Der Prompt kann in eine beliebige KI Anwendung kopiert werden (z.B. ChatGPT, Claude, Gemini, <a href="https://duck.ai/chat" target="_blank" class="text-purple-600 hover:underline">Duck.ai</a>). Damit kann eine Geschichte erstellt werden. 
+                    Als Ergebnis bekommt man eine Datei im sogenannten <strong>JSON Format</strong>. Dies ist eine einfache Textdatei. 
+                    Diese kann dann in den Lese-Fuchs hochgeladen werden, um eine neue Leseübung zu erstellen.
+                </p>
+                
+                <div class="bg-slate-800 rounded-lg p-4 relative group">
+                    <pre id="systemPromptCode" class="text-green-400 font-mono text-sm whitespace-pre-wrap break-words overflow-x-hidden"></pre>
+                    <button onclick="copyPrompt()" class="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1 rounded text-xs font-semibold transition backdrop-blur-sm flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                        </svg>
+                        Kopieren
+                    </button>
+                </div>
+
+                <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-blue-800">
+                    <strong>Tipp:</strong> Speichern Sie die Antwort der KI einfach in einer Textdatei mit der Endung <code>.json</code> (z.B. <code>meine-geschichte.json</code>).
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Application Logic -->
+    <script>
+        const APP_NAME = 'lese-fuchs';
+        // Placeholder für Wörter, die noch geladen werden
+        const LOADING_IMAGE = "https://static.arasaac.org/pictograms/2418/2418_500.png"; // Sanduhr
+        
+        let internalData = null; // Standardisiertes internes Datenobjekt
+        let flatWordList = []; 
+        let activeTab = 'read';
+        let synthesis = window.speechSynthesis;
+        let utterance = null;
+        let isPlaying = false;
+        let wordMap = []; 
+        let editingWordIndex = null; 
+        let isExportMode = false; // Flag für Export-Status
+
+        // --- System Prompt für Generator ---
+        const SYSTEM_PROMPT = `Rolle: Du bist ein spezialisierter KI-Assistent für Lehrkräfte, der pädagogisch wertvolle, spannende und kindgerechte Kurzgeschichten erstellt und diese linguistisch aufbereitet.
+PROZESS:
+Bedarfsanalyse: Bevor du die Geschichte erstellst, frage den Nutzer nach folgenden Informationen, falls diese noch nicht vollständig vorliegen:
+Thema der Geschichte.
+Alter der Zielgruppe (Schüler).
+Sprachniveau (Wähle aus: Einfache Sprache, Leichte Sprache oder die GER-Stufen A1, A2, B1, B2, C1, C2).
+Gewünschte Wortanzahl des Textes.
+Generierung: Sobald alle Informationen vorliegen, erstelle die Geschichte und die dazugehörige Wortliste sowie Verständnisfragen.
+ANFORDERUNGEN AN DEN INHALT:
+Geschichte: Spannend, altersgerecht und im gewählten Sprachniveau.
+Wortliste (30% der Nomen): Mit Artikel, Singular und Plural.
+Wortliste (30% der Verben): Grundform, alle Personalformen (ich, du, er/sie/es, wir, ihr, sie) in den Zeitformen: Präsens, Präteritum, Perfekt, Futur I.
+Wortliste (50% der Adjektive): Grundform, Komparativ und Superlativ.
+Aufgaben: 3 Multiple-Choice-Fragen. Jede Frage hat 3 Antwortmöglichkeiten, wobei 1 bis 3 Antworten korrekt sein können.
+AUSGABEFORMAT (STRIKTES JSON):
+Antworte nach der Eingabe der Parameter ausschließlich mit einem validen JSON-Code-Block. Nutze exakt diese Struktur:
+JSON
+{
+  "titel": "Titel der Geschichte",
+  "zielgruppe": {
+    "alter": 10,
+    "sprachniveau": "A1",
+    "thema": "Thema"
+  },
+  "text": "Der vollständige Lesetext...",
+  "wortliste": [
+    {
+      "wort": "Beispielwort",
+      "typ": "Nomen",
+      "grundform": "Haus",
+      "artikel": "das",
+      "singular": "Haus",
+      "plural": "Häuser"
+    },
+    {
+      "wort": "lief",
+      "typ": "Verb",
+      "grundform": "laufen",
+      "personalformen": {
+        "praesens": { "ich": "laufe", "du": "läufst", "er_sie_es": "läuft", "wir": "laufen", "ihr": "lauft", "sie": "laufen" },
+        "praeteritum": { "ich": "lief", "du": "liefst", "er_sie_es": "lief", "wir": "liefen", "ihr": "lieft", "sie": "liefen" },
+        "perfekt": { "ich": "bin gelaufen", "du": "bist gelaufen", "er_sie_es": "ist gelaufen", "wir": "sind gelaufen", "ihr": "seid gelaufen", "sie": "sind gelaufen" },
+        "futur_1": { "ich": "werde laufen", "du": "wirst laufen", "er_sie_es": "wird laufen", "wir": "werden laufen", "ihr": "werdet laufen", "sie": "werden laufen" }
+      }
+    },
+    {
+      "wort": "schnell",
+      "typ": "Adjektiv",
+      "grundform": "schnell",
+      "komparativ": "schneller",
+      "superlativ": "am schnellsten"
+    }
+  ],
+  "aufgaben": [
+    {
+      "frage": "Frageext?",
+      "antworten": [
+        { "text": "Antwort A", "korrekt": true },
+        { "text": "Antwort B", "korrekt": false },
+        { "text": "Antwort C", "korrekt": true }
+      ]
+    }
+  ]
+}
+WICHTIGE REGEL: Gib keinen erklärenden Text vor oder nach dem JSON aus. Nur das reine JSON-Objekt.`;
+
+        // --- Demo Daten (Neues Format: Astronauten) ---
+        const DEMO_DATA = {
+          "titel": "Die mutigen Astronauten",
+          "zielgruppe": {
+            "alter": 15,
+            "sprachniveau": "A2",
+            "thema": "Astronauten"
+          },
+          "text": "Tom und Anna sind Astronauten. Sie arbeiten zusammen im Weltraum. Heute haben sie eine wichtige Mission. Sie steigen in ihre große Rakete. Die Rakete ist sehr schnell. Sie fliegt hoch in den Himmel. \n\nIm Weltraum ist es dunkel und still. Anna schaut aus dem Fenster. Sie sieht viele kleine Sterne. „Schau mal, Tom!“, ruft sie. „Dort ist ein neuer Planet.“ Der Planet ist rot und sieht kalt aus. Tom steuert die Rakete vorsichtig. Sie wollen auf dem roten Planeten landen. \n\nDie Landung ist schwer, aber Tom und Anna sind mutig. Die Rakete landet sicher auf dem Boden. Sie ziehen ihre Raumanzüge an. Dann öffnen sie die Tür. Draußen ist alles rot. Anna nimmt einen kleinen Stein. Der Stein ist leicht. „Das ist fantastisch“, sagt Tom. Sie machen viele Fotos. \n\nNach zwei Stunden fliegen sie zurück zur Erde. Die Reise war lang, aber schön. Anna und Tom sind glücklich. Sie haben viel gesehen und gelernt.",
+          "wortliste": [
+            {
+              "wort": "Astronaut",
+              "typ": "Nomen",
+              "artikel": "der",
+              "singular": "der Astronaut",
+              "plural": "die Astronauten"
+            },
+            {
+              "wort": "Rakete",
+              "typ": "Nomen",
+              "artikel": "die",
+              "singular": "die Rakete",
+              "plural": "die Raketen"
+            },
+            {
+              "wort": "Stern",
+              "typ": "Nomen",
+              "artikel": "der",
+              "singular": "der Stern",
+              "plural": "die Sterne"
+            },
+            {
+              "wort": "Planet",
+              "typ": "Nomen",
+              "artikel": "der",
+              "singular": "der Planet",
+              "plural": "die Planeten"
+            },
+            {
+              "wort": "fliegen",
+              "typ": "Verb",
+              "grundform": "fliegen",
+              "personalformen": {
+                "ich": "fliege",
+                "du": "fliegst",
+                "er/sie/es": "fliegt",
+                "wir": "fliegen",
+                "ihr": "fliegt",
+                "sie/Sie": "fliegen"
+              },
+              "zeitformen": {
+                "praesens": "fliegt",
+                "praeteritum": "flog",
+                "perfekt": "ist geflogen",
+                "futur_1": "wird fliegen"
+              }
+            },
+            {
+              "wort": "sehen",
+              "typ": "Verb",
+              "grundform": "sehen",
+              "personalformen": {
+                "ich": "sehe",
+                "du": "siehst",
+                "er/sie/es": "sieht",
+                "wir": "sehen",
+                "ihr": "seht",
+                "sie/Sie": "sehen"
+              },
+              "zeitformen": {
+                "praesens": "sieht",
+                "praeteritum": "sah",
+                "perfekt": "hat gesehen",
+                "futur_1": "wird sehen"
+              }
+            },
+            {
+              "wort": "landen",
+              "typ": "Verb",
+              "grundform": "landen",
+              "personalformen": {
+                "ich": "lande",
+                "du": "landest",
+                "er/sie/es": "landet",
+                "wir": "landen",
+                "ihr": "landet",
+                "sie/Sie": "landen"
+              },
+              "zeitformen": {
+                "praesens": "landet",
+                "praeteritum": "landete",
+                "perfekt": "ist gelandet",
+                "futur_1": "wird landen"
+              }
+            },
+            {
+              "wort": "schnell",
+              "typ": "Adjektiv",
+              "grundform": "schnell",
+              "komparativ": "schneller",
+              "superlativ": "am schnellsten"
+            },
+            {
+              "wort": "dunkel",
+              "typ": "Adjektiv",
+              "grundform": "dunkel",
+              "komparativ": "dunkler",
+              "superlativ": "am dunkelsten"
+            },
+            {
+              "wort": "neu",
+              "typ": "Adjektiv",
+              "grundform": "neu",
+              "komparativ": "neuer",
+              "superlativ": "am neusten"
+            },
+            {
+              "wort": "kalt",
+              "typ": "Adjektiv",
+              "grundform": "kalt",
+              "komparativ": "kälter",
+              "superlativ": "am kältesten"
+            },
+            {
+              "wort": "rot",
+              "typ": "Adjektiv",
+              "grundform": "rot",
+              "komparativ": "röter",
+              "superlativ": "am rötesten"
+            }
+          ],
+          "aufgaben": [
+            {
+              "frage": "Was sehen Anna und Tom im Weltraum?",
+              "antworten": [
+                { "text": "Sie sehen viele Autos.", "korrekt": false },
+                { "text": "Sie sehen einen neuen Planeten.", "korrekt": true },
+                { "text": "Sie sehen viele kleine Sterne.", "korrekt": true }
+              ]
+            },
+            {
+              "frage": "Wie ist der neue Planet?",
+              "antworten": [
+                { "text": "Der Planet ist rot und sieht kalt aus.", "korrekt": true },
+                { "text": "Der Planet ist grün und warm.", "korrekt": false },
+                { "text": "Der Planet ist sehr klein.", "korrekt": false }
+              ]
+            },
+            {
+              "frage": "Was macht Anna auf dem Planeten?",
+              "antworten": [
+                { "text": "Sie nimmt einen kleinen Stein.", "korrekt": true },
+                { "text": "Sie schläft in der Rakete.", "korrekt": false },
+                { "text": "Sie isst ein Sandwich.", "korrekt": false }
+              ]
+            }
+          ]
+        };
+
+        // --- Init & Gatekeeper ---
+        window.addEventListener('load', () => {
+            // Check if we are in export mode (Data injected directly)
+            if (window.EXPORTED_DATA) {
+                internalData = window.EXPORTED_DATA;
+                flatWordList = window.EXPORTED_WORDLIST;
+                isExportMode = true; // Set Export Mode Flag
+                
+                // Hide header tools in exported version
+                const tools = document.getElementById('headerTools');
+                if(tools) tools.remove(); // Komplett entfernen
+
+                renderTabs();
+                switchTab('read');
+                return; // Stop normal init
+            }
+
+            // Normal Init
+            const isAccepted = localStorage.getItem(`${APP_NAME}-terms-accepted`);
+            if (isAccepted !== 'true') {
+                openHelpModal(true);
+            } else {
+                document.getElementById('termsToggle').checked = true;
+            }
+            // Prompt Text setzen
+            document.getElementById('systemPromptCode').textContent = SYSTEM_PROMPT;
+        });
+
+        // --- HTML Export Function ---
+        function exportHTML() {
+            if (!internalData || flatWordList.length === 0) {
+                alert("Bitte laden Sie zuerst eine Geschichte.");
+                return;
+            }
+
+            // 1. Daten serialisieren
+            const dataScript = `
+            <script>
+                window.EXPORTED_DATA = ${JSON.stringify(internalData)};
+                window.EXPORTED_WORDLIST = ${JSON.stringify(flatWordList)};
+            <\/script>`;
+
+            // 2. Aktuelles HTML holen
+            let htmlContent = document.documentElement.outerHTML;
+
+            // 3. Daten-Script direkt nach <head> einfügen
+            htmlContent = htmlContent.replace('<head>', '<head>' + dataScript);
+
+            // 4. Blob erstellen und Download starten
+            const blob = new Blob(['<!DOCTYPE html>\n' + htmlContent], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            
+            // Dateiname generieren (z.B. Lese-Fuchs_Die-mutigen-Astronauten.html)
+            const safeTitle = (internalData.title || 'Lese-Fuchs').replace(/[^a-z0-9äöüß]/gi, '-');
+            a.href = url;
+            a.download = `Lese-Fuchs_${safeTitle}.html`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // --- Prompt Modal Functions ---
+        function openPromptModal() {
+            document.getElementById('promptModal').classList.remove('hidden');
+        }
+
+        function closePromptModal() {
+            document.getElementById('promptModal').classList.add('hidden');
+        }
+
+        function copyPrompt() {
+            navigator.clipboard.writeText(SYSTEM_PROMPT).then(() => {
+                const btn = document.querySelector('#promptModal button[onclick="copyPrompt()"]');
+                const originalHTML = btn.innerHTML;
+                btn.innerHTML = 'Kopiert!';
+                btn.classList.add('bg-green-500', 'text-white');
+                setTimeout(() => {
+                    btn.innerHTML = originalHTML;
+                    btn.classList.remove('bg-green-500', 'text-white');
+                }, 2000);
+            });
+        }
+
+        function openHelpModal(force = false) {
+            const modal = document.getElementById('helpModal');
+            const closeBtn = document.getElementById('modalCloseBtn');
+            modal.classList.remove('hidden');
+            if (force) {
+                closeBtn.classList.add('hidden');
+                modal.onclick = (e) => e.stopPropagation();
+            } else {
+                closeBtn.classList.remove('hidden');
+                modal.onclick = (e) => { if(e.target === modal) closeHelpModal(); };
+            }
+        }
+
+        function closeHelpModal() { document.getElementById('helpModal').classList.add('hidden'); }
+
+        function acceptTerms() {
+            if (document.getElementById('termsToggle').checked) {
+                localStorage.setItem(`${APP_NAME}-terms-accepted`, 'true');
+                setTimeout(() => closeHelpModal(), 400);
+            }
+        }
+
+        // --- Paste Modal Functions ---
+        function openPasteModal() {
+            document.getElementById('pasteModal').classList.remove('hidden');
+            document.getElementById('jsonPasteArea').value = '';
+            document.getElementById('jsonPasteArea').focus();
+        }
+
+        function closePasteModal() {
+            document.getElementById('pasteModal').classList.add('hidden');
+        }
+
+        function processPastedJSON() {
+            const content = document.getElementById('jsonPasteArea').value.trim();
+            if (!content) return;
+            
+            try {
+                const json = JSON.parse(content);
+                loadData(json);
+                closePasteModal();
+            } catch (err) {
+                alert('Fehler: Der eingefügte Text ist kein gültiges JSON Format.\n\nDetails: ' + err.message);
+            }
+        }
+
+        // --- File Loading ---
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                try {
+                    const json = JSON.parse(ev.target.result);
+                    loadData(json);
+                } catch (err) { 
+                    console.error(err);
+                    alert('Fehler: Ungültige JSON Datei oder falsches Format.'); 
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function loadDemoData() { loadData(DEMO_DATA); }
+
+        // --- Core Data Loader (Normalizer) ---
+        function loadData(rawData) {
+            internalData = {
+                title: "",
+                text: "",
+                questions: []
+            };
+            flatWordList = [];
+
+            // 1. Titel & Text normalisieren
+            internalData.title = rawData.titel || rawData.geschichte?.titel || rawData.metadaten?.titel || "Kein Titel";
+            internalData.text = rawData.text || rawData.geschichte?.inhalt || rawData.text_gesamt || "";
+
+            // 2. Fragen normalisieren (Adapter: "aufgaben" vs "verstaendnisfragen")
+            const rawQuestions = rawData.aufgaben || rawData.verstaendnisfragen || [];
+            internalData.questions = rawQuestions.map((q, idx) => {
+                // Antworten/Optionen normalisieren
+                let rawOptions = q.antworten || q.optionen || [];
+                // Anzahl korrekter Antworten berechnen, falls nicht explizit angegeben
+                const correctCount = q.anzahl_richtige_antworten || rawOptions.filter(o => o.korrekt).length;
+                
+                return {
+                    id: q.id || idx,
+                    question: q.frage,
+                    options: rawOptions.map(opt => ({
+                        text: opt.text,
+                        isCorrect: opt.korrekt
+                    })),
+                    correctCount: correctCount
+                };
+            });
+
+            // 3. Wortliste normalisieren (Adapter: Array vs Object)
+            if (Array.isArray(rawData.wortliste)) {
+                // Neues Format (Array)
+                processNewWordList(rawData.wortliste);
+            } else if (typeof rawData.wortliste === 'object') {
+                // Altes Format (Objekt mit nomen, verben, ...)
+                processOldWordList(rawData.wortliste);
+            }
+
+            // NEU: Automatischer Bildabruf im Hintergrund
+            autoFetchImages();
+
+            renderTabs();
+            switchTab('read');
+        }
+        
+        // --- Auto Image Fetcher ---
+        async function autoFetchImages() {
+             const fetchPromises = flatWordList.map(async (item) => {
+                const term = item.cleanText || item.text;
+                try {
+                     const response = await fetch(`https://api.arasaac.org/api/pictograms/de/search/${encodeURIComponent(term)}`);
+                     const data = await response.json();
+                     if(Array.isArray(data) && data.length > 0) {
+                         // Nimm das erste Ergebnis
+                         item.image = `https://static.arasaac.org/pictograms/${data[0]._id}/${data[0]._id}_500.png`;
+                     } else {
+                         // Fallback wenn nichts gefunden (Suche-Icon)
+                         item.image = "https://static.arasaac.org/pictograms/26544/26544_500.png"; 
+                     }
+                } catch(e) {
+                    console.error("Auto fetch failed for", term);
+                    // Fallback bei Fehler
+                    item.image = "https://static.arasaac.org/pictograms/26544/26544_500.png";
+                }
+            });
+            
+            // Warte auf alle, dann Update UI
+            await Promise.all(fetchPromises);
+            
+            // Falls Nutzer im Drag oder Editor Modus ist, Ansicht aktualisieren
+            if(activeTab === 'drag' || activeTab === 'editor') {
+                switchTab(activeTab);
+            }
+        }
+
+        // Adapter für NEUES Format (Array)
+        function processNewWordList(listArray) {
+            listArray.forEach(item => {
+                // Formen sammeln für Lückentext-Matching
+                let forms = [item.wort, item.grundform];
+                
+                // Nomen
+                if(item.singular) forms.push(item.singular);
+                if(item.plural) forms.push(item.plural);
+
+                // Verben
+                if(item.personalformen) {
+                    forms = forms.concat(Object.values(item.personalformen));
+                }
+                if(item.zeitformen) {
+                    forms = forms.concat(Object.values(item.zeitformen));
+                }
+
+                // Adjektive
+                if(item.komparativ) forms.push(item.komparativ);
+                if(item.superlativ) forms.push(item.superlativ);
+
+                // Bereinigung leerer/undefined Werte
+                forms = forms.filter(f => f);
+
+                flatWordList.push({
+                    text: item.wort, // Anzeige
+                    cleanText: item.grundform || item.wort,
+                    image: LOADING_IMAGE, // URL aus JSON ignorieren, Platzhalter nutzen
+                    category: (item.typ || item.wortart || 'unknown').toLowerCase(),
+                    forms: forms
+                });
+            });
+        }
+
+        // Adapter für ALTES Format (Object)
+        function processOldWordList(listObj) {
+            if(listObj.nomen) {
+                listObj.nomen.forEach(n => {
+                    flatWordList.push({ 
+                        text: n.einzahl, 
+                        cleanText: n.einzahl.replace(/^(der|die|das)\s+/i, ''),
+                        image: LOADING_IMAGE, 
+                        category: 'nomen',
+                        forms: [n.einzahl, n.mehrzahl]
+                    });
+                });
+            }
+            if(listObj.verben) {
+                listObj.verben.forEach(v => {
+                    let forms = [v.infinitiv];
+                    if(v.konjugation) {
+                        Object.values(v.konjugation).forEach(arr => {
+                            if(Array.isArray(arr)) forms = forms.concat(arr);
+                        });
+                    }
+                    flatWordList.push({ 
+                        text: v.infinitiv, 
+                        cleanText: v.infinitiv,
+                        image: LOADING_IMAGE, 
+                        category: 'verb',
+                        forms: forms 
+                    });
+                });
+            }
+            if(listObj.adjektive) {
+                listObj.adjektive.forEach(a => {
+                    flatWordList.push({ 
+                        text: a.grundform, 
+                        cleanText: a.grundform,
+                        image: LOADING_IMAGE, 
+                        category: 'adjektiv',
+                        forms: [a.grundform, a.komparativ, a.superlativ]
+                    });
+                });
+            }
+        }
+
+        // --- Tabs System ---
+        function renderTabs() {
+            let tabs = [
+                { id: 'read', label: '📖 Lesen & Hören', color: 'blue' },
+                { id: 'quiz', label: '❓ Quiz', color: 'purple' },
+                { id: 'cloze', label: '✏️ Lückentext', color: 'orange' },
+                { id: 'drag', label: '🧩 Zuordnen', color: 'green' },
+                { id: 'editor', label: '⚙️ Wort-Liste', color: 'slate' }
+            ];
+
+            // Filter out editor tab in export mode
+            if (isExportMode) {
+                tabs = tabs.filter(t => t.id !== 'editor');
+            }
+            
+            const html = tabs.map(tab => `
+                <button onclick="switchTab('${tab.id}')" 
+                    class="px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
+                    ${activeTab === tab.id 
+                        ? `border-${tab.color}-600 text-${tab.color}-600 bg-${tab.color}-50` 
+                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}">
+                    ${tab.label}
+                </button>
+            `).join('');
+            document.getElementById('tabContainer').innerHTML = html;
+        }
+
+        function switchTab(id) {
+            stopSpeech();
+            activeTab = id;
+            renderTabs();
+            const content = document.getElementById('appContent');
+            content.innerHTML = ''; // Clear
+
+            if(id === 'read') renderReadMode(content);
+            else if(id === 'quiz') renderQuizMode(content);
+            else if(id === 'cloze') renderClozeMode(content);
+            else if(id === 'drag') renderDragMode(content);
+            else if(id === 'editor') renderEditorMode(content);
+        }
+
+        // --- 1. Lesen & Hören ---
+        function renderReadMode(container) {
+            const text = internalData.text;
+            const title = internalData.title;
+            
+            // Text formatieren (Newlines zu <br>)
+            const formattedText = text.replace(/\n/g, '<br>');
+            const words = formattedText.split(/(\s+|<br>)/); 
+            
+            let html = '';
+            let charCount = 0;
+            wordMap = [];
+            let wordIndex = 0;
+
+            words.forEach((part) => {
+                if (part === '<br>') {
+                    html += '<br>';
+                    charCount += 1; // Ungefähr
+                } else if(part.trim().length > 0) {
+                    html += `<span id="w-${wordIndex}" class="px-0.5 rounded transition-colors inline-block">${part}</span>`;
+                    wordMap.push({
+                        id: `w-${wordIndex}`,
+                        start: charCount,
+                        end: charCount + part.length
+                    });
+                    wordIndex++;
+                    charCount += part.length;
+                } else {
+                    html += part; 
+                    charCount += part.length;
+                }
+            });
+
+            container.innerHTML = `
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 max-w-3xl mx-auto">
+                    <!-- Titel Anzeige -->
+                    <h2 class="text-3xl font-bold text-slate-800 mb-4 text-center">${title}</h2>
+                    
+                    <!-- Vorlese Button (Oben positioniert) -->
+                    <div class="flex justify-center mb-6 pb-4 border-b border-slate-100">
+                        <button onclick="toggleSpeech()" id="playBtn" class="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-bold shadow transition transform hover:scale-105 text-sm md:text-base">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 001.555-.832l-3.197-2.132a1 1 0 00-1.555.832v4.263a1 1 0 001.555.832z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Vorlesen
+                        </button>
+                    </div>
+
+                    <div class="reading-font text-xl md:text-2xl text-slate-700 leading-relaxed text-justify" id="textArea">
+                        ${html}
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleSpeech() {
+            if(isPlaying) stopSpeech(); else startSpeech();
+        }
+
+        function startSpeech() {
+            if(!internalData) return;
+            stopSpeech();
+            
+            utterance = new SpeechSynthesisUtterance(internalData.text);
+            utterance.lang = 'de-DE';
+            utterance.rate = 0.9; 
+
+            utterance.onboundary = function(event) {
+                if (event.name === 'word') {
+                    const charIndex = event.charIndex;
+                    // Fuzzy Match für Highlight da Zeilenumbrüche Indizes verschieben können
+                    const wordObj = wordMap.find(w => Math.abs(charIndex - w.start) < 5); 
+                    document.querySelectorAll('.highlight-word').forEach(el => el.classList.remove('highlight-word'));
+                    if(wordObj) {
+                        const el = document.getElementById(wordObj.id);
+                        if(el) el.classList.add('highlight-word');
+                    }
+                }
+            };
+
+            utterance.onend = () => {
+                isPlaying = false;
+                document.querySelectorAll('.highlight-word').forEach(el => el.classList.remove('highlight-word'));
+                updatePlayButton();
+            };
+
+            synthesis.speak(utterance);
+            isPlaying = true;
+            updatePlayButton();
+        }
+
+        function stopSpeech() {
+            synthesis.cancel();
+            isPlaying = false;
+            document.querySelectorAll('.highlight-word').forEach(el => el.classList.remove('highlight-word'));
+            updatePlayButton();
+        }
+
+        function updatePlayButton() {
+            const btn = document.getElementById('playBtn');
+            if(!btn) return;
+            if(isPlaying) {
+                btn.innerHTML = `<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg> Stopp`;
+                btn.classList.add('bg-red-500', 'hover:bg-red-600');
+                btn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+            } else {
+                btn.innerHTML = `<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 001.555-.832l-3.197-2.132a1 1 0 00-1.555.832v4.263a1 1 0 001.555.832z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Vorlesen`;
+                btn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                btn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            }
+        }
+
+        // --- 2. Quiz Mode (Updated for Internal Model) ---
+        function renderQuizMode(container) {
+            const questions = internalData.questions;
+
+            if (!questions || questions.length === 0) {
+                container.innerHTML = '<div class="text-center p-10 text-slate-500">Keine Quizfragen verfügbar.</div>';
+                return;
+            }
+
+            const html = questions.map((q, qIdx) => {
+                const optionsHtml = q.options.map((opt, oIdx) => `
+                    <label class="custom-checkbox flex items-start gap-3 p-3 rounded border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer group">
+                        <input type="checkbox" name="q-${qIdx}" value="${oIdx}" class="peer sr-only">
+                        <div class="w-6 h-6 border-2 border-slate-300 rounded flex items-center justify-center peer-checked:bg-blue-600 peer-checked:border-blue-600 transition-colors mt-0.5 shrink-0 bg-white">
+                            <svg class="w-4 h-4 text-white hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                        </div>
+                        <span class="text-slate-700 font-medium select-none group-hover:text-slate-900">${opt.text}</span>
+                    </label>
+                `).join('');
+
+                return `
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6" id="q-card-${qIdx}">
+                        <div class="flex justify-between items-start mb-4">
+                            <h3 class="font-bold text-lg text-slate-800">Frage ${qIdx + 1}: ${q.question}</h3>
+                            <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-1 rounded-full whitespace-nowrap">${q.correctCount} Antwort${q.correctCount > 1 ? 'en' : ''}</span>
+                        </div>
+                        <div class="grid gap-3 mb-4">${optionsHtml}</div>
+                        <button onclick="checkMultipleChoice(${qIdx})" class="w-full sm:w-auto px-6 py-2 bg-slate-800 text-white rounded-lg font-semibold hover:bg-slate-900 transition-colors text-sm">Prüfen</button>
+                        <div class="mt-3 hidden feedback text-sm font-bold p-3 rounded-lg border"></div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = `<div class="max-w-2xl mx-auto">${html}</div>`;
+        }
+
+        function checkMultipleChoice(qIdx) {
+            const question = internalData.questions[qIdx];
+            const card = document.getElementById(`q-card-${qIdx}`);
+            const inputs = card.querySelectorAll(`input[name="q-${qIdx}"]`);
+            const feedback = card.querySelector('.feedback');
+            
+            let selectedIndices = [];
+            inputs.forEach((input, idx) => {
+                if(input.checked) selectedIndices.push(idx);
+                input.disabled = true; // Sperren nach Prüfung
+            });
+
+            // Auswertung
+            const correctIndices = question.options
+                .map((opt, idx) => opt.isCorrect ? idx : -1)
+                .filter(i => i !== -1);
+
+            // Button ausblenden/sperren
+            card.querySelector('button').classList.add('hidden');
+            feedback.classList.remove('hidden');
+
+            // Logik: Sind ALLE Richtigen dabei und KEINE Falschen?
+            const missed = correctIndices.filter(i => !selectedIndices.includes(i));
+            const wrongSelected = selectedIndices.filter(i => !correctIndices.includes(i));
+
+            if (missed.length === 0 && wrongSelected.length === 0) {
+                feedback.innerHTML = "Richtig! Hervorragend gelöst. 🎉";
+                feedback.className = "mt-3 feedback text-sm font-bold p-3 rounded-lg border bg-green-50 border-green-200 text-green-700";
+            } else if (missed.length < correctIndices.length && wrongSelected.length === 0) {
+                feedback.innerHTML = "Das stimmt teilweise, aber es fehlt noch etwas.";
+                feedback.className = "mt-3 feedback text-sm font-bold p-3 rounded-lg border bg-orange-50 border-orange-200 text-orange-700";
+            } else {
+                feedback.innerHTML = "Das war leider nicht ganz richtig.";
+                feedback.className = "mt-3 feedback text-sm font-bold p-3 rounded-lg border bg-red-50 border-red-200 text-red-700";
+            }
+
+            // Visuelles Feedback
+            inputs.forEach((input, idx) => {
+                const label = input.closest('label');
+                const isCorrectOption = question.options[idx].isCorrect;
+                
+                if (isCorrectOption) {
+                    label.classList.add('bg-green-100', 'border-green-300');
+                    if(input.checked) {
+                         label.innerHTML += `<span class="ml-auto text-green-600 font-bold">✓</span>`;
+                    } else {
+                         label.innerHTML += `<span class="ml-auto text-green-600 text-xs">Lösung</span>`;
+                    }
+                } else if (input.checked) {
+                    label.classList.add('bg-red-100', 'border-red-300');
+                }
+            });
+        }
+
+        // --- 3. Lückentext (Fix) ---
+        function renderClozeMode(container) {
+            if (!internalData || !internalData.text) {
+                container.innerHTML = '<div class="text-center p-8 text-slate-500">Kein Text verfügbar.</div>';
+                return;
+            }
+
+            const text = internalData.text;
+            // Satzweises Split, besserer Regex für Satzzeichen
+            const sentences = text.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g) || [text];
+            
+            let htmlContent = '';
+            let gapWords = [];
+
+            sentences.forEach(sentence => {
+                let sentenceModified = sentence;
+                
+                // Nur versuchen Lücken zu finden, wenn Wörter da sind
+                if (flatWordList && flatWordList.length > 0) {
+                    // Mische Wortliste für Zufälligkeit
+                    const shuffledWords = [...flatWordList].sort(() => 0.5 - Math.random());
+                    let foundMatch = false;
+
+                    for (const wordObj of shuffledWords) {
+                        if (foundMatch) break; 
+
+                        if(wordObj.forms && Array.isArray(wordObj.forms)) {
+                            for(const form of wordObj.forms) {
+                                if(!form) continue;
+                                try {
+                                    // Robustere Regex Erstellung
+                                    const safeForm = String(form).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                                    if(safeForm.length < 2) continue; // Zu kurze Wörter überspringen
+
+                                    const regex = new RegExp(`\\b${safeForm}\\b`, 'i');
+                                    
+                                    if (regex.test(sentenceModified)) {
+                                        const match = sentenceModified.match(regex)[0]; 
+                                        
+                                        // Verhindere Doppel-Lücken im gleichen Satzteil
+                                        if(sentenceModified.includes('cloze-drop-zone')) {
+                                            foundMatch = true; 
+                                            break;
+                                        }
+
+                                        gapWords.push({
+                                            display: wordObj.text, // Grundform anzeigen
+                                            solution: match 
+                                        });
+                                        
+                                        // Update auf exaktes Wort (optional, hier Grundform anzeigen ist oft besser, 
+                                        // aber für "Zuordnen" nehmen wir hier das Wort wie im Text für Klarheit bei Kindern)
+                                        gapWords[gapWords.length-1].display = match; 
+
+                                        const dropZone = `<span class="cloze-drop-zone inline-flex items-center justify-center min-w-[80px] h-8 mx-1 border-b-2 border-blue-300 bg-blue-50 rounded align-middle transition-colors text-blue-800 font-bold px-2" data-solution="${match}" ondragover="allowClozeDrop(event)" ondrop="handleClozeDrop(event)"></span>`;
+                                        
+                                        sentenceModified = sentenceModified.replace(regex, dropZone);
+                                        foundMatch = true;
+                                        break; 
+                                    }
+                                } catch(e) {
+                                    console.warn("Fehler beim Erstellen der Lücke für:", form);
+                                }
+                            }
+                        }
+                    }
+                }
+                htmlContent += sentenceModified;
+            });
+
+            // Wort-Bank
+            const shuffledGaps = [...gapWords].sort(() => 0.5 - Math.random());
+            
+            const bankHtml = shuffledGaps.map(item => `
+                <div class="draggable-word bg-white border border-blue-200 text-blue-800 px-3 py-1 rounded shadow-sm cursor-grab inline-block m-1 select-none font-semibold"
+                     draggable="true"
+                     ondragstart="handleClozeDragStart(event)"
+                     ontouchstart="handleTouchDragStart(event)"
+                     data-word="${item.display}">
+                    ${item.display}
+                </div>
+            `).join('');
+
+            container.innerHTML = `
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-8 max-w-6xl mx-auto h-[85vh] flex flex-col"> <!-- Fixed height for the main card -->
+                    <h3 class="text-xl font-bold mb-6 text-center text-slate-700 flex-shrink-0">Ziehe die Wörter in die Lücken</h3>
+                    
+                    <div class="flex flex-col md:flex-row gap-6 flex-grow overflow-hidden"> <!-- Flex container takes remaining space -->
+                        
+                        <!-- Text Bereich (Scrollable) -->
+                        <div class="flex-grow reading-font text-xl leading-loose text-justify order-2 md:order-1 overflow-y-auto pr-2 custom-scrollbar border rounded-lg p-4 border-slate-100 shadow-inner bg-slate-50/30">
+                            ${htmlContent.replace(/\n/g, '<br>')}
+                        </div>
+
+                        <!-- Wort Bank (Rechts & Static/Scrollable internal) -->
+                        <div class="w-full md:w-64 flex-shrink-0 order-1 md:order-2 flex flex-col">
+                            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm flex-grow overflow-y-auto">
+                                <h4 class="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 text-center sticky top-0 bg-slate-50 z-10 pb-2 border-b border-slate-100">Wörter</h4>
+                                <div id="clozeBank" class="min-h-[100px] flex flex-wrap gap-2 justify-center content-start" ondragover="allowClozeDrop(event)" ondrop="handleClozeBankDrop(event)">
+                                    ${bankHtml.length > 0 ? bankHtml : '<span class="text-slate-400 italic text-sm">Leer</span>'}
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="text-center mt-4 pt-4 border-t border-slate-100 flex-shrink-0">
+                        <button onclick="checkClozeResults()" class="px-8 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-full font-bold shadow transition transform hover:scale-105">Überprüfen</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- Cloze Handlers (Logic Separated) ---
+        let clozeDraggedItem = null;
+
+        function handleClozeDragStart(e) {
+            clozeDraggedItem = e.target;
+            e.dataTransfer.effectAllowed = 'move';
+            setTimeout(() => e.target.classList.add('opacity-50'), 0);
+        }
+
+        function allowClozeDrop(e) { e.preventDefault(); }
+
+        function handleClozeDrop(e) {
+            e.preventDefault();
+            processClozeDrop(e.currentTarget, clozeDraggedItem);
+        }
+
+        function processClozeDrop(zone, item) {
+            if (!item) return;
+            // If zone already has a word, move it back to bank
+            if (zone.children.length > 0) {
+                document.getElementById('clozeBank').appendChild(zone.children[0]);
+            }
+            zone.appendChild(item);
+            item.classList.remove('opacity-50', 'opacity-40');
+            zone.classList.remove('correct', 'wrong');
+        }
+
+        function handleClozeBankDrop(e) {
+            e.preventDefault();
+            processClozeBankDrop(e.currentTarget, clozeDraggedItem);
+        }
+
+        function processClozeBankDrop(bank, item) {
+            if (!item || bank === item.parentElement) return;
+            bank.appendChild(item);
+            item.classList.remove('opacity-50', 'opacity-40');
+        }
+
+        function checkClozeResults() {
+            const zones = document.querySelectorAll('.cloze-drop-zone');
+            let correct = 0;
+            zones.forEach(zone => {
+                const solution = zone.dataset.solution;
+                const child = zone.children[0]; 
+                zone.classList.remove('correct', 'wrong'); 
+                if (child) {
+                    if (child.dataset.word === solution) { zone.classList.add('correct'); correct++; } 
+                    else { zone.classList.add('wrong'); }
+                } else { zone.classList.add('wrong'); }
+            });
+            if(correct === zones.length && zones.length > 0) setTimeout(() => alert("Fantastisch! Alles richtig! 🎉"), 100);
+        }
+
+        // --- 4. Drag & Drop ---
+        function renderDragMode(container) {
+            // Nimm max 6 Wörter aus der flachen Liste
+            const items = flatWordList.slice(0, 6);
+            const shuffledWords = [...items].sort(() => 0.5 - Math.random());
+
+            const dropZonesHtml = items.map(item => `
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col items-center gap-4">
+                    <div class="w-24 h-24 flex items-center justify-center">
+                        <img src="${item.image}" alt="Bild" class="max-w-full max-h-full object-contain">
+                    </div>
+                    <div class="drop-zone w-full h-12 rounded-lg bg-slate-50 flex items-center justify-center text-sm text-slate-400 font-medium text-center px-2" 
+                         data-target="${item.text}"
+                         ondragover="allowDrop(event)" 
+                         ondrop="handleDrop(event)">
+                        Hier ablegen
+                    </div>
+                </div>
+            `).join('');
+
+            const draggablesHtml = shuffledWords.map(item => `
+                <div class="draggable-item bg-white border-2 border-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold shadow-sm inline-block m-2" 
+                     draggable="true" 
+                     ondragstart="handleDragStart(event)"
+                     ontouchstart="handleTouchDragStart(event)"
+                     data-word="${item.text}">
+                    ${item.text}
+                </div>
+            `).join('');
+
+            container.innerHTML = `
+                <div class="max-w-4xl mx-auto">
+                    <h3 class="text-xl font-bold mb-6 text-center text-slate-700">Ordne die Wörter den Bildern zu</h3>
+                    <div class="bg-blue-50 p-6 rounded-xl border border-blue-100 mb-8 min-h-[100px] flex flex-wrap justify-center items-center" id="wordBank" ondragover="allowDrop(event)" ondrop="handleDropBack(event)">
+                        ${draggablesHtml}
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-6">
+                        ${dropZonesHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        let draggedItem = null;
+
+        function handleDragStart(e) {
+            draggedItem = e.target;
+            e.dataTransfer.effectAllowed = 'move';
+            e.target.classList.add('dragging');
+        }
+
+        function allowDrop(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            processImageDrop(e.currentTarget, draggedItem);
+        }
+
+        function processImageDrop(zone, item) {
+            if (!item) return;
+            zone.classList.remove('drag-over');
+            
+            const targetWord = zone.dataset.target;
+            const draggedWord = item.dataset.word;
+
+            if (targetWord === draggedWord) {
+                zone.innerHTML = '';
+                zone.appendChild(item);
+                zone.classList.remove('bg-slate-50', 'text-slate-400');
+                zone.classList.add('correct');
+                item.classList.remove('bg-white', 'border-blue-100', 'text-blue-700', 'opacity-40');
+                item.classList.add('bg-transparent', 'border-0', 'text-green-800', 'w-full', 'h-full', 'flex', 'items-center', 'justify-center');
+                item.setAttribute('draggable', 'false');
+                item.removeAttribute('ondragstart');
+                item.removeAttribute('ontouchstart'); // Disable touch after success
+            } else {
+                zone.style.borderColor = '#ef4444';
+                setTimeout(() => zone.style.borderColor = '', 500);
+            }
+            item.classList.remove('dragging');
+        }
+
+        function handleDropBack(e) {
+            e.preventDefault();
+            processImageBankDrop(e.currentTarget, draggedItem);
+        }
+
+        function processImageBankDrop(bank, item) {
+            if (item && item.getAttribute('draggable') === 'true') {
+               bank.appendChild(item);
+            }
+            if(item) item.classList.remove('dragging', 'opacity-40');
+        }
+
+        document.addEventListener('dragleave', (e) => {
+            if(e.target.classList && e.target.classList.contains('drop-zone')) {
+                e.target.classList.remove('drag-over');
+            }
+        });
+
+        // --- Touch Support Logic ---
+        let touchDragItem = null;
+        let touchProxy = null;
+        let touchOffsetX = 0;
+        let touchOffsetY = 0;
+
+        function handleTouchDragStart(e) {
+            const target = e.currentTarget;
+            if (!target) return;
+            
+            if(e.cancelable) e.preventDefault(); // Prevent scroll
+
+            touchDragItem = target;
+            const touch = e.touches[0];
+            const rect = target.getBoundingClientRect();
+            
+            touchOffsetX = touch.clientX - rect.left;
+            touchOffsetY = touch.clientY - rect.top;
+
+            // Create Visual Proxy
+            touchProxy = target.cloneNode(true);
+            touchProxy.style.position = 'fixed';
+            touchProxy.style.left = rect.left + 'px';
+            touchProxy.style.top = rect.top + 'px';
+            touchProxy.style.width = rect.width + 'px';
+            touchProxy.style.height = rect.height + 'px';
+            touchProxy.style.zIndex = '9999';
+            touchProxy.style.opacity = '0.9';
+            touchProxy.style.pointerEvents = 'none'; 
+            touchProxy.classList.add('shadow-2xl', 'scale-110', 'ring-2', 'ring-blue-400');
+            
+            document.body.appendChild(touchProxy);
+            target.classList.add('opacity-40');
+
+            document.addEventListener('touchmove', handleTouchDragMove, { passive: false });
+            document.addEventListener('touchend', handleTouchDragEnd);
+        }
+
+        function handleTouchDragMove(e) {
+            if (!touchProxy) return;
+            if(e.cancelable) e.preventDefault(); 
+            
+            const touch = e.touches[0];
+            touchProxy.style.left = (touch.clientX - touchOffsetX) + 'px';
+            touchProxy.style.top = (touch.clientY - touchOffsetY) + 'px';
+        }
+
+        function handleTouchDragEnd(e) {
+            if (!touchDragItem) return;
+
+            const touch = e.changedTouches[0];
+            const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+            
+            // Cleanup visual
+            touchProxy.remove();
+            touchProxy = null;
+            touchDragItem.classList.remove('opacity-40');
+            
+            document.removeEventListener('touchmove', handleTouchDragMove);
+            document.removeEventListener('touchend', handleTouchDragEnd);
+
+            if (!dropTarget) {
+                touchDragItem = null;
+                return;
+            }
+
+            // Identify Target Zone
+            const clozeZone = dropTarget.closest('.cloze-drop-zone');
+            const clozeBank = dropTarget.closest('#clozeBank');
+            const imageZone = dropTarget.closest('.drop-zone');
+            const imageBank = dropTarget.closest('#wordBank');
+
+            if (clozeZone) {
+                processClozeDrop(clozeZone, touchDragItem);
+            } else if (clozeBank) {
+                processClozeBankDrop(clozeBank, touchDragItem);
+            } else if (imageZone) {
+                processImageDrop(imageZone, touchDragItem);
+            } else if (imageBank) {
+                processImageBankDrop(imageBank, touchDragItem);
+            }
+            
+            touchDragItem = null;
+        }
+
+        // --- 5. Wort-Editor Mode ---
+        function renderEditorMode(container) {
+            const listHtml = flatWordList.map((word, idx) => `
+                <div class="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition">
+                    <div class="w-16 h-16 bg-slate-50 rounded flex-shrink-0 flex items-center justify-center border border-slate-100 overflow-hidden">
+                        <img src="${word.image}" class="w-full h-full object-contain" alt="${word.text}">
+                    </div>
+                    <div class="flex-grow">
+                        <div class="font-bold text-lg text-slate-800">${word.text}</div>
+                        <div class="text-xs text-slate-500 uppercase tracking-wide">${word.category}</div>
+                    </div>
+                    <div class="flex gap-2">
+                        ${!isExportMode ? `
+                        <button onclick="openImageSearch(${idx})" title="Bild suchen" class="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition">
+                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </button>
+                        <button onclick="deleteWord(${idx})" title="Löschen" class="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-full transition">
+                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            container.innerHTML = `
+                <div class="max-w-3xl mx-auto">
+                    <h3 class="text-xl font-bold mb-6 text-center text-slate-700">Wort-Liste bearbeiten</h3>
+                    <div class="space-y-3">
+                        ${listHtml.length > 0 ? listHtml : '<div class="text-center p-8 text-slate-400">Keine Wörter in der Liste.</div>'}
+                    </div>
+                </div>
+            `;
+        }
+
+        function deleteWord(index) {
+            if(confirm('Möchten Sie dieses Wort aus der aktuellen Ansicht entfernen?')) {
+                flatWordList.splice(index, 1);
+                renderEditorMode(document.getElementById('appContent'));
+            }
+        }
+
+        // --- Bildersuche (ARASAAC) ---
+        function openImageSearch(index) {
+            editingWordIndex = index;
+            const currentWord = flatWordList[index].cleanText || flatWordList[index].text;
+            document.getElementById('searchInput').value = currentWord;
+            document.getElementById('imageSearchModal').classList.remove('hidden');
+            performSearch(currentWord);
+            document.getElementById('searchInput').focus();
+        }
+
+        function closeSearchModal() {
+            document.getElementById('imageSearchModal').classList.add('hidden');
+            editingWordIndex = null;
+        }
+
+        function handleSearchEnter(e) {
+            if(e.key === 'Enter') performSearch();
+        }
+
+        async function performSearch(termInput = null) {
+            const term = termInput || document.getElementById('searchInput').value.trim();
+            const resultsDiv = document.getElementById('searchResults');
+            
+            if(!term) return;
+
+            resultsDiv.innerHTML = '<div class="col-span-full flex justify-center py-10"><div class="loader"></div></div>';
+
+            try {
+                // ARASAAC API Search (German)
+                const response = await fetch(`https://api.arasaac.org/api/pictograms/de/search/${encodeURIComponent(term)}`);
+                const data = await response.json();
+
+                if(Array.isArray(data) && data.length > 0) {
+                    resultsDiv.innerHTML = data.map(item => `
+                        <button onclick="selectPictogram(${item._id})" class="aspect-square p-2 bg-white rounded-lg border border-slate-200 hover:border-blue-500 hover:shadow-md transition flex flex-col items-center justify-center gap-2 group">
+                            <img src="https://static.arasaac.org/pictograms/${item._id}/${item._id}_500.png" class="w-full h-full object-contain group-hover:scale-105 transition-transform" alt="Pictogram">
+                        </button>
+                    `).join('');
+                } else {
+                    resultsDiv.innerHTML = '<div class="col-span-full text-center text-slate-500 py-10">Keine Bilder gefunden. Versuchen Sie einen anderen Begriff.</div>';
+                }
+
+            } catch(e) {
+                console.error(e);
+                resultsDiv.innerHTML = '<div class="col-span-full text-center text-red-500 py-10">Fehler bei der Verbindung zur ARASAAC API.</div>';
+            }
+        }
+
+        function selectPictogram(id) {
+            if(editingWordIndex !== null) {
+                const newUrl = `https://static.arasaac.org/pictograms/${id}/${id}_500.png`;
+                flatWordList[editingWordIndex].image = newUrl;
+                closeSearchModal();
+                renderEditorMode(document.getElementById('appContent'));
+            }
+        }
+
+    </script>
+</body>
+</html>
